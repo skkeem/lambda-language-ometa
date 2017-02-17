@@ -3,7 +3,7 @@ ometa LParser {
     range :a :b     = char:c ?(a <= c && c <= b) -> c,
     space           = ^space | fromTo('#', '\n'),
     spacesNoNl      = (~'\n' space)*,
-    idStart         = range('a', 'z') | 'L' | '_',
+    idStart         = range('a', 'z') | '\u03bb' | '_',
     idRest          = idStart | digit | char:ch ?("?!-<>=".indexOf(ch) >= 0) -> ch,
     id              = <idStart idRest*>,
     isKeyword :x    = ?LParser._isKeyword(x),
@@ -30,7 +30,7 @@ ometa LParser {
     atomExpr        = ( "(" expr:e ")"          -> e
                       | "{" progExpr:p "}"      -> p
                       | "if" ifExpr
-                      | ("lambda" | "L") lambdaExpr
+                      | ("lambda" | "\u03bb") lambdaExpr
                       | "bool":b                -> ({type: "bool", value: b})
                       | "var":v                 -> ({type: "var", value: v})
                       | "num":n                 -> ({type: "num", value: n})
@@ -51,7 +51,7 @@ ometa LParser {
     toplevel        = listOf(#expr, ';'):p (";" | empty) spaces end                 -> ({type: #prog, prog: p})
 }
 LParser.keywords = { };
-keywords = ["if", "then", "else", "lambda", "L"];
+keywords = ["if", "then", "else", "lambda", "\u03bb"];
 for (var idx = 0; idx < keywords.length; idx++)
     LParser.keywords[keywords[idx]] = true;
 LParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k); };
