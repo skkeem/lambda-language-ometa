@@ -1,0 +1,148 @@
+ometa LParser {
+    // tokens
+    range :a :b     = char:c ?(a <= c)
+                             ?(c <= b) -> c,
+    space           = ^space | fromTo('#', '\n'),
+    spacesNoNl      = (~'\n' space)*,
+    idStart         = range('a', 'z') | 'L' | '_',
+    idRest          = idStart | digit | char:ch ?("?!-<>=".indexOf(ch) >= 0) -> ch,
+    id              = <idStart idRest*>,
+    isKeyword :x    = ?LParser._isKeyword(x),
+    var             = id:n ~isKeyword(n)                                            -> [#var, n],
+    keyword         = id:k isKeyword(k)                                             -> [k, k],
+    number          = <digit+ ('.' digit+)?>:f                                      -> [#num, parseFloat(f)],
+    boolean         = (``true'' -> true | ``false'' -> false):v                     -> [#bool, v],
+    escapeChar      = '\\' char:c -> unescape('\\' + c),
+    string          = '"' (escapeChar | ~'"' char)*:cs '"'                          -> [#str, cs.join('')],
+//    special         = ( char:ch ?(",;(){}[]".indexOf(ch) >= 0) -> ch
+//                      | ``||'' | ``&&'' | ``<='' | ``>='' | ``=='' | ``!=''
+//                      | '=' | '<' | '>' | '+' | '-' | '*' | '/' | '%'           ):s -> [s, s],
+    punc            = char:ch ?(",;(){}[]".indexOf(ch) >= 0)                        -> [ch, ch],
+    opChar          = char:ch ?("+-*/%=&|<>!".indexOf(ch) >= 0) -> ch,
+    operator        = <opChar+>:op ?LParser._isOperator(op)                         -> [#op, op],
+//    tok             = spaces (var | keyword | number | string | special),
+    tok             = spaces (boolean | var | keyword | number | string | punc | operator),
+    token :tt       = tok:t ?(t[0] == tt)                                           -> t[1],
+    
+    // parser
+    maybeCall :f    = "(" callExpr(f):ce ")" -> ce
+                    | empty -> f,
+    callExpr :f     = listOf(#expr, ','):as                                         -> ({type: #call, func: f, args:as}),
+
+    maybeBin :l :x  = "op":op ?(LParser._precedence(op) > x)
+                        atomExpr:e  maybeBin(e, LParser._precedence(op)):r
+                        {({type: op == '=' ? #assign : #binary, operator: op, left: l, right: r})}:v  maybeBin(v, x)
+                    | empty                                                         -> l,
+
+    atomExpr        = ( "(" expr:e ")"          -> e
+                      | "{" progExpr:p "}"      -> p
+                      | "if" ifExpr
+                      | ("lambda" | "L") lambdaExpr
+                      | "bool":b                -> ({type: "bool", value: b})
+                      | "var":v                 -> ({type: "var", value: v})
+                      | "num":n                 -> ({type: "num", value: n})
+                      | "str":s                 -> ({type: "str", value: s})
+                      ):f  maybeCall(f),
+    progExpr        = listOf(#expr, ';'):es (";" | empty) ( ?(es.length == 0)       -> ({type: #bool, value: false})
+                                                          | ?(es.length == 1)       -> es[0]
+                                                          | empty                   -> ({type: #prog, prog:es })
+                                                          ),
+    ifExpr          = expr:p (~"{" "then" | empty) expr:a
+                        {({type: #if, cond: p, then: a})}:ret
+                        ( "else" expr:b                                             -> {ret.else = b; ret}
+                        | empty                                                     -> ret
+                        ),
+    varName         = "var",
+    lambdaExpr      = "(" listOf(#varName, ','):vs ")" expr:b                       -> ({type: #lambda, vars: vs, body: b}),
+
+    test            = "num",
+    test2           = tok, 
+    test3           = tok ";", 
+    test4           = listOf(#tok, ';'):p spaces end ->p,
+
+    expr            = atomExpr:ae  maybeBin(ae, 0):be  maybeCall(be),
+    toplevel        = listOf(#expr, ';'):p (";" | empty) spaces end                 -> ({type: #prog, prog: p})
+}
+LParser.keywords = { };
+keywords = ["if", "then", "else", "lambda", "L"];
+for (var idx = 0; idx < keywords.length; idx++)
+    LParser.keywords[keywords[idx]] = true;
+LParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k); };
+LParser.operators = {
+    "=": 1,
+    "||": 2,
+    "&&": 3,
+    "<": 7, ">": 7, "<=": 7, ">=": 7, "==": 7, "!=": 7,
+    "+": 10, "-": 10,
+    "*": 20, "/": 20, "%": 20
+};
+LParser._isOperator = function(k) { return this.operators.hasOwnProperty(k); };
+LParser._precedence = function(k) { return this.operators[k]; };
+
+console.log(LParser.matchAll("123.4", "number"));
+console.log(LParser.matchAll("\"asdf\c\"", "string"));
+//console.log(LParser.matchAll("==", "special"));
+//console.log(LParser.matchAll("||", "special"));
+//console.log(LParser.matchAll(">", "special"));
+//console.log(LParser.matchAll("(", "special"));
+//console.log(LParser.matchAll("]", "special"));
+console.log(LParser.matchAll("a", "idStart"));
+console.log(LParser.matchAll("==", "tok"));
+console.log(LParser.matchAll("||", "tok"));
+console.log(LParser.matchAll(">", "tok"));
+console.log(LParser.matchAll("(", "tok"));
+console.log(LParser.matchAll("]", "tok"));
+console.log(LParser.matchAll("abcd", "tok"));
+console.log(LParser.matchAll("if", "tok"));
+console.log(LParser.matchAll("""
+#asdf ad
+abcd
+""", "tok"));
+console.log(LParser.matchAll(",", "tok"));
+console.log(LParser.matchAll(";", "tok"));
+console.log(LParser.matchAll(">=", "tok"));
+console.log(LParser.matchAll("true", "tok"));
+console.log("==============================");
+console.log(LParser.matchAll("123", "number"));
+console.log(LParser.matchAll("123", "tok"));
+console.log(LParser.matchAll("123", "test2"));
+console.log(LParser.matchAll(";", "tok"));
+console.log(LParser.matchAll("123;", "test3"));
+console.log(LParser.matchAll("123 ;", "test3"));
+console.log(LParser.matchAll("123; 234;345 ; 456 ; 567", "test4"));
+console.log("==============================");
+console.log(LParser.matchAll("12.3; 234", "toplevel"));
+console.log(LParser.matchAll("true; false", "toplevel"));
+console.log(LParser.matchAll("12.3; \"hello\"; false", "toplevel"));
+console.log(LParser.matchAll("foo", "toplevel"));
+console.log(JSON.stringify(LParser.matchAll("foo(x, y, z)", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("a+b", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("a+b(x)", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("(a+b)(x)", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("{x}", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("{x}", "expr")));
+console.log(JSON.stringify(LParser.matchAll("{x;y}", "expr")));
+console.log(JSON.stringify(LParser.matchAll("{}", "expr")));
+console.log(JSON.stringify(LParser.matchAll("lambda(x) {x}", "toplevel")));
+console.log(JSON.stringify(LParser.matchAll("lambda(x) {x}", "expr")));
+console.log(JSON.stringify(LParser.matchAll("if foo then bar else baz", "expr")));
+console.log(JSON.stringify(LParser.matchAll("if foo then bar", "expr")));
+console.log(JSON.stringify(LParser.matchAll("sum", "expr")));
+console.log(JSON.stringify(LParser.matchAll("sum = 1", "expr")));
+console.log(JSON.stringify(LParser.matchAll("lambda(a, b) {a+b}", "expr")));
+console.log(JSON.stringify(LParser.matchAll("x + y * z", "expr")));
+console.log(JSON.stringify(LParser.matchAll("""
+{
+    a = 5;
+    b = a * 2;
+    a + b
+}
+""", "expr")));
+console.log(LParser.matchAll("""
+sum = lambda(a, b) {
+  a + b
+}
+""", "toplevel"));
+console.log("==============================");
+console.log(JSON.stringify(LParser.matchAll("1 + 2 * 3", "expr")));
+console.log(JSON.stringify(LParser.matchAll("1 * 2 + 3", "expr")));
